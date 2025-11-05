@@ -13,7 +13,7 @@ public:
     double lat;
     double lon;
     std::unordered_map<std::string, bool> pois;
-    bool restricted;
+    bool restricted = false;
 
     Node(unsigned int _id, double _lat, double _lon);
 
@@ -31,10 +31,11 @@ public:
     double length;
     bool directed;
     bool forbidden = false;
-    double time;
+    double avg_time;
     std::string type;
+    std::vector<double> speed_profile;
 
-    Edge(unsigned int _id, Node* from, Node* to, std::string type);
+    Edge(unsigned int _id, Node* from, Node* to, double _len, std::string type, double _avg_time, bool _one_way = false);
 
     void update_restriction(bool _forbidden);
 
@@ -46,12 +47,14 @@ public:
 class Graph {
 
 public:
-    // int N; // No. of vertices
-    std::vector<Edge*> edge_list;
-    std::vector<Node*> nodes; // is it needed?
+    // std::vector<Edge*> edge_list;
+    // std::vector<Node*> nodes; // is it needed?
     std::unordered_map<Node*, std::vector<Node*>> adj_list;
+    std::unordered_map<unsigned int, Node*> Node_from_id;
+    std::unordered_map<unsigned int, Edge*> Edge_from_id;
 
     // void CreateNode(unsigned int _id, double _lat, double )
     
+    void json_load(const nlohmann::json &j);
 
 };
