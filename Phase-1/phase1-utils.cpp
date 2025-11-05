@@ -43,8 +43,8 @@ void Edge::update_type(std::string _type) {
 void Graph::json_load(const nlohmann::json& jsn) {
     for(auto& n : jsn["nodes"]) {
         unsigned int _id = n["id"].get<unsigned int>();
-        double _lat = n["lat"];
-        double _lon = n["lon"];
+        double _lat = n["lat"].get<double>();
+        double _lon = n["lon"].get<double>();
 
         Node* node = new Node(_id, _lat, _lon);
 
@@ -62,7 +62,7 @@ void Graph::json_load(const nlohmann::json& jsn) {
         unsigned int _id = e["id"].get<unsigned int>();
         Node* _from;
         Node* _to;
-        double _len = e["length"];
+        double _len = e["length"].get<double>();
         double _avg_time = e["average_time"];
 
         if(!Node_from_id[e["u"]]) {
@@ -85,12 +85,10 @@ void Graph::json_load(const nlohmann::json& jsn) {
 
         Edge* edg = new Edge(_id, _from, _to, _len, r_type, _avg_time, one_way);
 
-        if(one_way) {
-            adj_list[_from].push_back(_to);
-        }
-        else {
-            adj_list[_from].push_back(_to);
-            adj_list[_to].push_back(_from);
+        adj_list[_from].push_back({_to, _id});
+
+        if(!one_way) {
+            adj_list[_to].push_back({_from, _id});
         }
 
         if(e.contains("speed_profile")) {
@@ -102,4 +100,61 @@ void Graph::json_load(const nlohmann::json& jsn) {
         Edge_from_id[_id] = edg;
         // edge_list.push_back(edg);
     }
+}
+
+void Graph::remove_edge(unsigned int _id) {
+    if(Edge_from_id.count(_id)) {
+        Edge_from_id[_id]->forbidden = true;
+    }
+
+    // else {
+    //     throw std::out_of_range("Edge with this id not present");
+    // }
+}
+
+void Graph::modify_edge(unsigned int _id, const nlohmann::json &j_query) {
+    if(Edge_from_id.count(_id)) {
+        Edge* e = Edge_from_id[_id];
+        e->forbidden = false;
+        for(auto& p : j_query["patch"]) {
+            if(p.contains("length")) {
+                e->length = p["length"].get<double>();
+            }
+            if(p.contains("average_time")) {
+                e->avg_time = p["average_time"].get<double>();
+            }
+            if(p.contains("speed_profile")) {
+                int i = 0;
+                for(auto& sp: p["speed_profile"]) {
+                    e->speed_profile[i++] = (sp.get<double>());
+                }
+            }
+            if (p.contains("road_type")) {
+                e->type = p["road_type"].get<std::string>();
+            }
+        }
+    }
+    // else {
+    //     throw std::out_of_range("Edge with this id not present");
+    // }
+}
+
+std::pair<double, std::vector<unsigned int>> Graph::shortest_path(nlohmann::json &j_query){
+    unsigned int source_id = j_query["source"].get<unsigned int>();
+    unsigned int target_id = j_query["target"].get<unsigned int>();
+    std::string mode = j_query["mode"].get<std::string>();
+
+    if(mode=="distance") {
+        Node* source = Node_from_id[source_id];
+        Node* target = Node_from_id[target_id];
+        std::vector<unsigned int> path;
+        double distance = 0.0;
+        
+
+
+
+    } else if {mode == "time"} {
+
+    }
+    return {};
 }

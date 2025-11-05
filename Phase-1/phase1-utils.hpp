@@ -49,12 +49,18 @@ class Graph {
 public:
     // std::vector<Edge*> edge_list;
     // std::vector<Node*> nodes; // is it needed?
-    std::unordered_map<Node*, std::vector<Node*>> adj_list;
+    std::unordered_map<Node*, std::vector<std::pair<Node*, unsigned int>>> adj_list;
     std::unordered_map<unsigned int, Node*> Node_from_id;
     std::unordered_map<unsigned int, Edge*> Edge_from_id;
 
     // void CreateNode(unsigned int _id, double _lat, double )
     
-    void json_load(const nlohmann::json &j);
+    void json_load(const nlohmann::json& jsn);
 
+    // Phase 1 Queries
+    void remove_edge(unsigned int _id);
+
+    void modify_edge(unsigned int _id, const nlohmann::json &j_query);
+
+    std::pair<double, std::vector<unsigned int>> shortest_path(nlohmann::json &j_query);
 };
