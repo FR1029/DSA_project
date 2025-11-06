@@ -1,5 +1,9 @@
 #include "phase1-utils.hpp"
 
+double euclidean_distance(double lat1, double lat2, double lon1, double lon2) {
+    return (lat1 - lat2)*(lat1 - lat2) + (lon1 - lon2)*(lon1 - lon2);
+}
+
 Node::Node(unsigned int _id, double _lat, double _lon) {
     id = _id;
     lat = _lat;
@@ -229,3 +233,92 @@ std::pair<double, std::vector<unsigned int>> Graph::shortest_path(nlohmann::json
     std::reverse(path.begin(), path.end());
     return {dist[target_id], path};
 }
+
+std::vector<unsigned int> Graph::knn_euclidean(nlohmann::json &j_query) {
+    std::string poi = j_query["poi"].get<std::string>();
+    double q_lat = j_query["query_point"]["lat"].get<double>();
+    double q_lon = j_query["query_point"]["lon"].get<double>();
+    unsigned int k = j_query["k"].get<unsigned int>();
+    std::vector<unsigned int> ans;
+
+    if(k <= nodes.size()) {
+        std::partial_sort(nodes.begin(), nodes.begin()+k, nodes.end(), [&](Node* a, Node* b) {
+            double temp_a = euclidean_distance(a->lat, q_lat, a->lon, q_lon);
+            double temp_b = euclidean_distance(b->lat, q_lat, b->lon, q_lon);
+            bool x1 = a->pois[poi];
+            bool x2 = b->pois[poi];
+
+            if(x1 != x2) {
+                return x1 > x2;
+            }
+            return temp_a > temp_b;
+        });
+
+        for(unsigned int i = 0; i<k; i++) {
+            if(nodes[i]->pois[poi]) ans.push_back(nodes[i]->id);
+        }
+    }
+    else {
+        std::sort(nodes.begin(), nodes.end(), [&] (Node* a, Node* b) {
+            double temp_a = euclidean_distance(a->lat, q_lat, a->lon, q_lon);
+            double temp_b = euclidean_distance(b->lat, q_lat, b->lon, q_lon);
+            bool x1 = a->pois[poi];
+            bool x2 = b->pois[poi];
+
+            if(x1 != x2) {
+                return x1 > x2;
+            }
+            return temp_a > temp_b;
+        });
+
+        for(unsigned int i = 0; i<nodes.size(); i++) {
+            if(nodes[i]->pois[poi]) ans.push_back(nodes[i]->id);
+        }
+    }
+
+    return ans;
+}
+
+// std::vector<unsigned int> Graph::knn_shortest_path(nlohmann::json &j_query) {
+//     std::string poi = j_query["poi"].get<std::string>();
+//     double q_lat = j_query["query_point"]["lat"].get<double>();
+//     double q_lon = j_query["query_point"]["lon"].get<double>();
+//     unsigned int k = j_query["k"].get<unsigned int>();
+//     std::vector<unsigned int> ans;
+
+//     if(k <= nodes.size()) {
+//         std::partial_sort(nodes.begin(), nodes.begin()+k, nodes.end(), [&](Node* a, Node* b) {
+//             double temp_a = shortest_path();
+//             double temp_b = shortest_path();
+//             bool x1 = a->pois[poi];
+//             bool x2 = b->pois[poi];
+
+//             if(x1 != x2) {
+//                 return x1 > x2;
+//             }
+//             return  temp_a > temp_b;
+//         });
+
+//         for(unsigned int i = 0; i<k; i++) {
+//             if(nodes[i]->pois[poi]) ans.push_back(nodes[i]->id);
+//         }
+//     }
+//     else {
+//         std::sort(nodes.begin(), nodes.end(), [&] (Node* a, Node* b) {
+//             double temp_a = shortest_path();
+//             double temp_b = shortest_path();
+//             bool x1 = a->pois[poi];
+//             bool x2 = b->pois[poi];
+
+//             if(x1 != x2) {
+//                 return x1 > x2;
+//             }
+//             return temp_a > temp_b;
+//         });
+
+//         for(unsigned int i = 0; i<nodes.size(); i++) {
+//             if(nodes[i]->pois[poi]) ans.push_back(nodes[i]->id);
+//         }
+//     }
+
+// }
