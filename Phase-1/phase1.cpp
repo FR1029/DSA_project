@@ -31,6 +31,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    graph_file.close();
     Graph Graph_Map;
     try {
         Graph_Map.graph_load_json(graph_json);
