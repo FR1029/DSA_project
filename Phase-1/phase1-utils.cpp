@@ -4,19 +4,71 @@ double euclidean_distance(double lat1, double lat2, double lon1, double lon2) {
     return (lat1 - lat2)*(lat1 - lat2) + (lon1 - lon2)*(lon1 - lon2);
 }
 
+nlohmann::json Graph::process_query(const nlohmann::json& _query) {
+    nlohmann::json res;
+    res["id"] = _query["id"];
+    std::string q_type = _query["type"].get<std::string>();
+
+    if(q_type == "remove_edge") {
+        unsigned edge_id = _query["edge_id"].get<unsigned>();
+        res["done"] = remove_edge(edge_id);
+        return res;
+    }
+
+    if(q_type == "modify_edge") {
+        unsigned edge_id = _query["edge_id"].get<unsigned>();
+        res["done"] = modify_edge(edge_id, _query);
+        return res;
+    }
+
+    if(q_type == "shortest_path") {
+        std::pair<double, std::vector<unsigned int>> ans = shortest_path(_query);
+
+        if(std::isinf(ans.first)) {
+            res["possible"] = false;
+            return res;
+        }
+
+        res["possible"] = true;
+        res["minimum_time/minimum_distance"] = ans.first;
+        res["path"] = ans.second;
+
+        return res;
+    }
+
+    if(q_type == "knn") {
+        if(_query["metric"] == "euclidean") {
+            std::vector<unsigned int> ans = knn_euclidean(_query);
+            res["nodes"] = ans;
+            return ans;
+        }
+        if(_query["metric"] == "shortest_path") {
+            std::vector<unsigned int> ans = knn_shortest_path(_query);
+            res["nodes"] = ans;
+            return ans;
+        }
+    }
+
+    throw std::invalid_argument("Query type does not exist");
+}
+
+Node::Node(unsigned int _id) {
+    id = _id;
+}
+
 Node::Node(unsigned int _id, double _lat, double _lon) {
     id = _id;
     lat = _lat;
     lon = _lon;
 }
 
-void Node::update_restriction(bool _restricted) {
-    restricted = _restricted;
-}
+// void Node::update_restriction(bool _restricted) {
+//     restricted = _restricted;
+// }
 
-void Node::update_pois(std::string place, bool val) {
-    pois[place] = val;
-}
+// void Node::update_pois(std::string place, bool val) {
+//     pois[place] = val;
+// }
 
 Edge::Edge(unsigned int _id, Node* _from, Node* _to, double _len, std::string type, double _avg_time, bool _one_way) {
     id = _id;
@@ -27,34 +79,48 @@ Edge::Edge(unsigned int _id, Node* _from, Node* _to, double _len, std::string ty
     directed = _one_way;
 }
 
-void Edge::update_restriction(bool _forbidden) {
-    forbidden = _forbidden;
-}
+// void Edge::update_restriction(bool _forbidden) {
+//     forbidden = _forbidden;
+// }
 
-void Edge::update_length(double _len) {
-    if(_len > 0) {
-        length = _len;
-    }
-    else {
-        throw std::invalid_argument("Length should be positive");
-    }
-}
+// void Edge::update_length(double _len) {
+//     if(_len > 0) {
+//         length = _len;
+//     }
+//     else {
+//         throw std::invalid_argument("Length should be positive");
+//     }
+// }
 
-void Edge::update_type(std::string _type) {
-    type = _type;
-}
+// void Edge::update_type(std::string _type) {
+//     type = _type;
+// }
 
-void Graph::json_load(const nlohmann::json& jsn) {
+void Graph::graph_load_json(const nlohmann::json& jsn) {
     nodes.clear();
     Node_from_id.clear();
     Edge_from_id.clear();
     adj_list.clear();
+
+    if(jsn["meta"]["nodes"]) {
+        unsigned n_nodes = jsn["meta"]["nodes"];
+
+        for(unsigned i=0; i<n_nodes; i++) {
+            Node* node = new Node(i);
+            nodes.push_back(node);
+            Node_from_id[i] = node;
+        }
+    }
+
     for(auto& n : jsn["nodes"]) {
         unsigned int _id = n["id"].get<unsigned int>();
         double _lat = n["lat"].get<double>();
         double _lon = n["lon"].get<double>();
 
-        Node* node = new Node(_id, _lat, _lon);
+        // Node* node = new Node(_id, _lat, _lon);
+        Node* node = Node_from_id[_id];
+        node->lat = _lat;
+        node->lon = _lon;
 
         if(n.contains("pois")) {
             for (auto& place : n["pois"]) {
@@ -62,9 +128,9 @@ void Graph::json_load(const nlohmann::json& jsn) {
             }
         }
 
-        // nodes.push_back(node);
-        Node_from_id[_id] = node;
         nodes.push_back(node);
+        Node_from_id[_id] = node;
+        
     }
 
     for(auto& e : jsn["edges"]) {
@@ -101,8 +167,9 @@ void Graph::json_load(const nlohmann::json& jsn) {
         }
 
         if(e.contains("speed_profile")) {
+            unsigned i = 0;
             for(auto& sp: e["speed_profile"]) {
-                edg->speed_profile.push_back(sp.get<double>());
+                edg->speed_profile[i++] = sp.get<double>();
             }
         }
 
@@ -111,44 +178,56 @@ void Graph::json_load(const nlohmann::json& jsn) {
     }
 }
 
-void Graph::remove_edge(unsigned int _id) {
+bool Graph::remove_edge(unsigned int _id) {
     if(Edge_from_id.count(_id)) {
+        if(Edge_from_id[_id]->forbidden) return false;
+
         Edge_from_id[_id]->forbidden = true;
+        return true;
     }
 
+    return false;
     // else {
     //     throw std::out_of_range("Edge with this id not present");
     // }
 }
 
-void Graph::modify_edge(unsigned int _id, const nlohmann::json &j_query) {
+bool Graph::modify_edge(unsigned int _id, const nlohmann::json &j_query) {
     if(Edge_from_id.count(_id)) {
         Edge* e = Edge_from_id[_id];
         e->forbidden = false;
-        for(auto& p : j_query["patch"]) {
-            if(p.contains("length")) {
-                e->length = p["length"].get<double>();
-            }
-            if(p.contains("average_time")) {
-                e->avg_time = p["average_time"].get<double>();
-            }
-            if(p.contains("speed_profile")) {
-                int i = 0;
-                for(auto& sp: p["speed_profile"]) {
-                    e->speed_profile[i++] = (sp.get<double>());
+        if(!j_query["patch"].empty()) {
+            for(auto& p : j_query["patch"]) {
+                if(p.contains("length")) {
+                    e->length = p["length"].get<double>();
+                }
+                if(p.contains("average_time")) {
+                    e->avg_time = p["average_time"].get<double>();
+                }
+                if(p.contains("speed_profile")) {
+                    unsigned i = 0;
+                    for(auto& sp: p["speed_profile"]) {
+                        e->speed_profile[i++] = (sp.get<double>());
+                    }
+                }
+                if (p.contains("road_type")) {
+                    e->type = p["road_type"].get<std::string>();
                 }
             }
-            if (p.contains("road_type")) {
-                e->type = p["road_type"].get<std::string>();
-            }
+            return true;
+        }
+        else {
+            return false;
         }
     }
+    
+    return false;
     // else {
     //     throw std::out_of_range("Edge with this id not present");
     // }
 }
 
-std::pair<double, std::vector<unsigned int>> Graph::shortest_path(nlohmann::json &j_query){
+std::pair<double, std::vector<unsigned int>> Graph::shortest_path(const nlohmann::json &j_query){
     unsigned int source_id = j_query["source"].get<unsigned int>();
     unsigned int target_id = j_query["target"].get<unsigned int>();
 
@@ -183,12 +262,14 @@ std::pair<double, std::vector<unsigned int>> Graph::shortest_path(nlohmann::json
     return {dist[target_id], path};
 }
 
-std::vector<unsigned int> Graph::knn_euclidean(nlohmann::json &j_query) {
+std::vector<unsigned int> Graph::knn_euclidean(const nlohmann::json &j_query) {
     std::string poi = j_query["poi"].get<std::string>();
     double q_lat = j_query["query_point"]["lat"].get<double>();
     double q_lon = j_query["query_point"]["lon"].get<double>();
     unsigned int k = j_query["k"].get<unsigned int>();
     std::vector<unsigned int> ans;
+
+    // Precomputation for faster sorting //
 
     if(k <= nodes.size()) {
         std::partial_sort(nodes.begin(), nodes.begin()+k, nodes.end(), [&](Node* a, Node* b) {
@@ -200,7 +281,7 @@ std::vector<unsigned int> Graph::knn_euclidean(nlohmann::json &j_query) {
             if(x1 != x2) {
                 return x1 > x2;
             }
-            return temp_a > temp_b;
+            return temp_a < temp_b;
         });
 
         for(unsigned int i = 0; i<k; i++) {
@@ -228,49 +309,6 @@ std::vector<unsigned int> Graph::knn_euclidean(nlohmann::json &j_query) {
     return ans;
 }
 
-// std::vector<unsigned int> Graph::knn_shortest_path(nlohmann::json &j_query) {
-//     std::string poi = j_query["poi"].get<std::string>();
-//     double q_lat = j_query["query_point"]["lat"].get<double>();
-//     double q_lon = j_query["query_point"]["lon"].get<double>();
-//     unsigned int k = j_query["k"].get<unsigned int>();
-//     std::vector<unsigned int> ans;
-
-//     if(k <= nodes.size()) {
-//         std::partial_sort(nodes.begin(), nodes.begin()+k, nodes.end(), [&](Node* a, Node* b) {
-//             double temp_a = shortest_path();
-//             double temp_b = shortest_path();
-//             bool x1 = a->pois[poi];
-//             bool x2 = b->pois[poi];
-
-//             if(x1 != x2) {
-//                 return x1 > x2;
-//             }
-//             return  temp_a > temp_b;
-//         });
-
-//         for(unsigned int i = 0; i<k; i++) {
-//             if(nodes[i]->pois[poi]) ans.push_back(nodes[i]->id);
-//         }
-//     }
-//     else {
-//         std::sort(nodes.begin(), nodes.end(), [&] (Node* a, Node* b) {
-//             double temp_a = shortest_path();
-//             double temp_b = shortest_path();
-//             bool x1 = a->pois[poi];
-//             bool x2 = b->pois[poi];
-
-//             if(x1 != x2) {
-//                 return x1 > x2;
-//             }
-//             return temp_a > temp_b;
-//         });
-
-//         for(unsigned int i = 0; i<nodes.size(); i++) {
-//             if(nodes[i]->pois[poi]) ans.push_back(nodes[i]->id);
-//         }
-//     }
-
-// }
 void Graph::dijkstra_dist(const unsigned int& source_id, 
     std::unordered_map<unsigned int, double>& dist, 
     std::unordered_map<unsigned int, unsigned int>& parent,
@@ -349,7 +387,7 @@ void Graph::dijkstra_time(const unsigned int& source_id,
     }
 }
 
-std::vector<unsigned int> Graph::knn_shortest_path(nlohmann::json &j_query) {
+std::vector<unsigned int> Graph::knn_shortest_path(const nlohmann::json &j_query) {
     std::string poi = j_query["poi"].get<std::string>();
     double q_lat = j_query["query_point"]["lat"].get<double>();
     double q_lon = j_query["query_point"]["lon"].get<double>();
