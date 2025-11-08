@@ -31,6 +31,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    graph_file.close();
+    
     Graph Graph_Map;
     try {
         Graph_Map.graph_load_json(graph_json);
@@ -71,7 +73,7 @@ int main(int argc, char* argv[]) {
             result = Graph_Map.process_query(query);
         }
         catch (const std::exception& e) {
-            std::cerr << "Query Processing error: " << e.what() << std::endl;
+            std::cerr << "Failed to open " << argv[2] << std::endl;
             return 1;
         }
 
