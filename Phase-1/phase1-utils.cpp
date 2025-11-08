@@ -45,6 +45,10 @@ void Edge::update_type(std::string _type) {
 }
 
 void Graph::json_load(const nlohmann::json& jsn) {
+    nodes.clear();
+    Node_from_id.clear();
+    Edge_from_id.clear();
+    adj_list.clear();
     for(auto& n : jsn["nodes"]) {
         unsigned int _id = n["id"].get<unsigned int>();
         double _lat = n["lat"].get<double>();
@@ -60,6 +64,7 @@ void Graph::json_load(const nlohmann::json& jsn) {
 
         // nodes.push_back(node);
         Node_from_id[_id] = node;
+        nodes.push_back(node);
     }
 
     for(auto& e : jsn["edges"]) {
@@ -150,7 +155,8 @@ std::pair<double, std::vector<unsigned int>> Graph::shortest_path(nlohmann::json
     if (!Node_from_id.count(source_id) || !Node_from_id.count(target_id)) {
         throw std::out_of_range("Invalid source or target ID");
     }
-
+    // We have to make a vector for forbidden road types and forbidden_nodes
+    if (source_id == target_id) return {0.0, {source_id}};
     std::string mode = j_query["mode"].get<std::string>();
     Node* source = Node_from_id[source_id];
     Node* target = Node_from_id[target_id];
@@ -158,70 +164,13 @@ std::pair<double, std::vector<unsigned int>> Graph::shortest_path(nlohmann::json
     std::priority_queue<std::pair<double, unsigned int>, std::vector<std::pair<double, unsigned int>>, std::greater<>> pq;
     std::unordered_map<unsigned int, double> dist;
     if(mode=="distance") {
-        for (auto &n : Node_from_id) {
-            dist[n.first] = std::numeric_limits<double>::infinity();
-        }
-        dist[source_id] = 0.0;
-        pq.push({0.0, source_id});
-        while (!pq.empty()) {
-            auto [d, u] = pq.top(); pq.pop();
-            if (d > dist[u]) continue;
-            if (u == target_id) break;
-            for (auto &[v, edge_id] : adj_list[Node_from_id[u]]) {
-                Edge* e = Edge_from_id[edge_id];
-                if (e->forbidden || v->restricted) {
-                    continue;
-                }
-                double w = e->length;
-                double tempdist = dist[u] + w;
-                if (tempdist < dist[v->id]) {
-                    dist[v->id] = tempdist;
-                    parent[v->id] = u;
-                    pq.push({tempdist, v->id});
-                }
-            }
-        }
+        dijkstra_dist(source_id, dist, parent, target_id);
     } else if (mode == "time") {
-        for (auto &n : Node_from_id) dist[n.first] = std::numeric_limits<double>::infinity();
-        dist[source_id] = 0.0;
-        pq.push({0.0, source_id});
-        while (!pq.empty()) {
-            auto [t, u] = pq.top(); pq.pop();
-            if (t > dist[u]) continue;
-            if (u == target_id) break;
-            for (auto &[v, edge_id] : adj_list[Node_from_id[u]]) {
-                Edge* e = Edge_from_id[edge_id];
-                if (e->forbidden || v->restricted) continue;
-                double travel_time = 0.0;
-                if (!e->speed_profile.empty()) {
-                    double remaining = e->length;
-                    double curr_time = t;
-                    while (remaining > 0) {
-                        int idx = (int)(curr_time / 15) % 96;
-                        double speed = e->speed_profile[idx];
-                        double time_left = 15.0 - fmod(curr_time, 15.0);
-                        double dist_possible = (speed * time_left) / 60.0;
-                        if (remaining <= dist_possible) {
-                            travel_time += (remaining / speed) * 60.0;
-                            remaining = 0;
-                        } else {
-                            travel_time += time_left;
-                            curr_time += time_left;
-                            remaining -= dist_possible;
-                        }
-                    }
-                } else {
-                    travel_time = e->avg_time;
-                }
-                double new_time = t + travel_time;
-                if (new_time < dist[v->id]) {
-                    dist[v->id] = new_time;
-                    parent[v->id] = u;
-                    pq.push({new_time, v->id});
-                }
-            }
-        }
+        dijkstra_time(source_id, dist, parent, target_id);
+    } else {
+        return {};
     }
+    if (dist[target_id] == std::numeric_limits<double>::infinity()) return {std::numeric_limits<double>::infinity(), {}};
     if (!parent.count(target_id)) {
         return {std::numeric_limits<double>::infinity(), {}};
     }
@@ -322,3 +271,123 @@ std::vector<unsigned int> Graph::knn_euclidean(nlohmann::json &j_query) {
 //     }
 
 // }
+void Graph::dijkstra_dist(const unsigned int& source_id, 
+    std::unordered_map<unsigned int, double>& dist, 
+    std::unordered_map<unsigned int, unsigned int>& parent,
+    unsigned int target_id = -1)
+{   
+    for (auto &n : Node_from_id) {
+        dist[n.first] = std::numeric_limits<double>::infinity();
+    }
+    dist[source_id] = 0.0;
+    std::priority_queue<std::pair<double, unsigned int>, std::vector<std::pair<double, unsigned int>>, std::greater<std::pair<double, unsigned int>>> pq;
+    pq.push({0.0, source_id});
+    while (!pq.empty()) {
+        auto [d, u] = pq.top(); pq.pop();
+        if (d > dist[u]) continue;
+        if (u == target_id) break;
+        for (auto &[v, edge_id] : adj_list[Node_from_id[u]]) {
+            Edge* e = Edge_from_id[edge_id];
+            if (e->forbidden || v->restricted) {
+                continue;
+            }
+            double w = e->length;
+            double tempdist = dist[u] + w;
+            if (tempdist < dist[v->id]) {
+                dist[v->id] = tempdist;
+                parent[v->id] = u;
+                pq.push({tempdist, v->id});
+            }
+        }
+    }
+}
+
+void Graph::dijkstra_time(const unsigned int& source_id,
+    std::unordered_map<unsigned int, double>& dist,
+    std::unordered_map<unsigned int, unsigned int>& parent,
+    unsigned int target_id = -1) 
+{
+    for (auto &n : Node_from_id) dist[n.first] = std::numeric_limits<double>::infinity();
+    dist[source_id] = 0.0;
+    std::priority_queue<std::pair<double, unsigned int>, std::vector<std::pair<double, unsigned int>>, std::greater<std::pair<double, unsigned int>>> pq;
+    pq.push({0.0, source_id});
+    while (!pq.empty()) {
+        auto [t, u] = pq.top(); pq.pop();
+        if (t > dist[u]) continue;
+        if (u == target_id) break;
+        for (auto &[v, edge_id] : adj_list[Node_from_id[u]]) {
+            Edge* e = Edge_from_id[edge_id];
+            if (e->forbidden || v->restricted) continue;
+            double travel_time = 0.0;
+            if (!e->speed_profile.empty()) {
+                double remaining = e->length;
+                double curr_time = t;
+                while (remaining > 0) {
+                    int idx = (int)(curr_time / 15) % 96;
+                    double speed = e->speed_profile[idx];
+                    double time_left = 15.0 - fmod(curr_time, 15.0);
+                    double dist_possible = (speed * time_left) / 60.0;
+                    if (remaining <= dist_possible) {
+                        travel_time += (remaining / speed) * 60.0;
+                        remaining = 0;
+                    } else {
+                        travel_time += time_left;
+                        curr_time += time_left;
+                        remaining -= dist_possible;
+                    }
+                }
+            } else {
+                travel_time = e->avg_time;
+            }
+            double new_time = t + travel_time;
+            if (new_time < dist[v->id]) {
+                dist[v->id] = new_time;
+                parent[v->id] = u;
+                pq.push({new_time, v->id});
+            }
+        }
+    }
+}
+
+std::vector<unsigned int> Graph::knn_shortest_path(nlohmann::json &j_query) {
+    std::string poi = j_query["poi"].get<std::string>();
+    double q_lat = j_query["query_point"]["lat"].get<double>();
+    double q_lon = j_query["query_point"]["lon"].get<double>();
+    unsigned int k = j_query["k"].get<unsigned int>();
+    std::vector<unsigned int> ans;
+    unsigned int nearest_node_id = 0;
+    double nearest_dist = std::numeric_limits<double>::infinity();
+    for (auto &n : Node_from_id) {
+        Node* node = n.second;
+        double d = euclidean_distance(node->lat, q_lat, node->lon, q_lon);
+        if (d < nearest_dist) {
+            nearest_node_id = n.first;
+            nearest_dist = d;
+        }
+    }
+    std::unordered_map<unsigned int, double> dist;
+    std::unordered_map<unsigned int, unsigned int> parent;
+    dijkstra_dist(nearest_node_id, dist, parent);
+    std::vector<std::pair<double, unsigned int>> poi_nodes;
+    poi_nodes.reserve(Node_from_id.size());
+    for (auto& [id, node] : Node_from_id) {
+        if (node->pois.count(poi) && node->pois.at(poi)) {
+            double d = dist[id];
+            if (d < std::numeric_limits<double>::infinity()) {
+                poi_nodes.emplace_back(d, id);
+            }
+        }
+    }
+    if (poi_nodes.size() <= k) {
+        std::sort(poi_nodes.begin(), poi_nodes.end(),
+                  [](auto &a, auto &b) { return a.first < b.first; });
+    } else {
+        std::partial_sort(poi_nodes.begin(), poi_nodes.begin() + k, poi_nodes.end(),
+                          [](auto &a, auto &b) { return a.first < b.first; });
+        poi_nodes.resize(k);
+    }
+    ans.reserve(k);
+    for (auto &p : poi_nodes)
+        ans.push_back(p.second);
+    return ans;
+}

@@ -67,6 +67,8 @@ public:
 
     std::vector<unsigned int> knn_euclidean(nlohmann::json &j_query);
     std::vector<unsigned int> knn_shortest_path(nlohmann::json &j_query);
+    void dijkstra_dist(const unsigned int& source_id, std::unordered_map<unsigned int, double>& dist, std::unordered_map<unsigned int, unsigned int>& parent, unsigned int target_id = -1);
+    void dijkstra_time(const unsigned int& source_id, std::unordered_map<unsigned int, double>& dist, std::unordered_map<unsigned int, unsigned int>& parent, unsigned int target_id = -1);
 };
 
 double euclidean_distance(double lat1, double lat2, double lon1, double lon2);
